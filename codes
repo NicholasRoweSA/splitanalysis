@@ -1,0 +1,382 @@
+libname worklib "H:\FNCE 435\ ";
+data worklib.d_splitx;
+set worklib.d_split;
+id_ev=_n_;
+run;
+
+%let wrds=wrds-cloud.wharton.upenn.edu 4016;  
+options comamid=TCP remote=WRDS;  
+signon username=_prompt_;  
+ 
+rsubmit; 
+libname crspd '/wrds/crsp/sasdata/a_stock'; 
+libname crspix '/wrds/crsp/sasdata/a_indexes';
+
+ 
+
+ 
+Proc upload data=worklib.d_splitx out=d;
+
+
+
+proc sql;
+create table returns as
+select
+a.id_ev,
+ a.*,
+ b.date,
+ b.ret-(a.alpha+a.beta*c.vwretd) as ar,
+ a.dclrdt-b.date as rel_date
+from
+d as a, crspd.dsf as b, crspix.dsix as c
+where
+ a.permno=b.permno and
+ a.dclrdt-5<=b.date<=a.dclrdt+5 and
+b.date=c.caldt;
+
+proc download data=returns out=d;
+run;
+endrsubmit;
+
+data d; 
+    set d; 
+    by id_ev; 
+if first.id_ev then
+car=ar;
+else
+car=car+ar;
+retain car;
+run;
+
+proc gchart data=d;
+vbar rel_date / discrete type=mean sumvar=ar;
+where -5<=rel_date<=5;
+run;
+quit;
+
+proc ttest data=d alpha=0.05 h0=0;
+var ar;
+where rel_date=-5;
+run;
+proc ttest data=d alpha=0.05 h0=0;
+var ar;
+where rel_date=-4;
+run;
+proc ttest data=d alpha=0.05 h0=0;
+var ar;
+where rel_date=-3;
+run;
+proc ttest data=d alpha=0.05 h0=0;
+var ar;
+where rel_date=-2;
+run;
+proc ttest data=d alpha=0.05 h0=0;
+var ar;
+where rel_date=-1;
+run;
+proc ttest data=d alpha=0.05 h0=0;
+var ar;
+where rel_date=0;
+run;
+proc ttest data=d alpha=0.05 h0=0;
+var ar;
+where rel_date=1;
+run;
+proc ttest data=d alpha=0.05 h0=0;
+var ar;
+where rel_date=2;
+run;
+proc ttest data=d alpha=0.05 h0=0;
+var ar;
+where rel_date=3;
+run;
+proc ttest data=d alpha=0.05 h0=0;
+var ar;
+where rel_date=4;
+run;
+proc ttest data=d alpha=0.05 h0=0;
+var ar;
+where rel_date=5;
+run;
+
+proc ttest data=d alpha=0.05 h0=0 sides=u;
+var AR;
+where 0<=rel_date<=1;
+run;
+
+proc ttest data=d alpha=0.05 h0=0;
+var AR;
+where 2<=rel_date<=5;
+run;
+
+proc gchart data=d;
+vbar rel_date / discrete type=mean sumvar=ar;
+where divup=0 and divdown=0;
+run;
+quit;
+
+proc gchart data=d;
+vbar rel_date / discrete type=mean sumvar=CAR;
+where divup=0 and divdown=0;
+run;
+quit;
+
+proc ttest data=d alpha=0.05 h0=0 sides=u;
+var AR;
+where divup=0 and divdown=0 and
+0<=rel_date<=1;
+run;
+
+proc ttest data=d alpha=0.05 h0=0;
+var AR;
+where divup=0 and divdown=0 and
+2<=rel_date<=5;
+run;
+
+/* part 2*/
+
+data d1;
+set work.d;
+retain car01;
+if rel_date = 0 then car01=ar;
+else car01=car01+ar;
+where 0<=rel_date<=1;
+run;
+
+data d1;
+set work.d1;
+ lprcaft=log(prcaft);
+run;
+
+proc sql;
+create table d as
+select
+a.*,
+b.gvkey
+from d1 as a, Worklib.mapping_permno_gvkey as b
+where a.permno=b.permno;
+
+
+%let wrds=wrds-cloud.wharton.upenn.edu 4016;  
+options comamid=TCP remote=WRDS;  
+signon username=_prompt_;  
+ 
+rsubmit; 
+libname comp '/wrds/comp/sasdata/nam'; 
+libname crspd '/wrds/crsp/sasdata/a_stock';
+ proc upload data=d;
+ 
+ proc sql; 
+ create table d as
+select
+a.*,
+log(b.at) as lat
+from d as a, comp.funda as b
+where a.gvkey=b.gvkey and
+year(a.dclrdt)=year(b.datadate)+1;
+
+
+
+proc sql;
+create table d_ret as 
+select
+a.*,
+b.ret 
+from
+d as a, crspd.dsf as b
+where
+ a.permno=b.permno and
+ a.dclrdt-180<=b.date<=a.dclrdt-10;
+
+ proc sort data=d_ret;
+ by id_ev;
+ proc means data=d_ret noprint;
+ by id_ev;
+id rel_date;
+output out=pastavg
+mean(ret)=pastperf;
+proc sql;
+create table d as
+select
+a.*,
+b.pastperf
+from
+d as a, pastavg as b
+where
+a.id_ev=b.id_ev and
+a.rel_date=b.rel_date;
+
+proc download data=d;
+run;
+endrsubmit;
+
+proc reg data=d;
+ model car01 = lprcaft;
+ run;
+
+proc means data=d;
+var lprcaft lat alpha beta pastperf divup divdown;
+run;
+
+proc corr data=d;
+var lprcaft lat alpha beta pastperf divup divdown;
+run;
+
+proc reg data=d;
+ model car01 = lprcaft lat alpha beta pastperf divup divdown;
+ run;
+
+
+proc model data=d;
+parms b0 b1 b2 b3 b4 b5;
+car01= b0+b1*lprcaft+b2*lat+b3*beta+b4*pastperf+b5*divup;
+fit car01/white;
+run;
+
+proc reg data=d;
+ model car01 = lprcaft lat beta pastperf divup/hcc;
+ run;
+
+data d;
+set work.d;
+ lprcaft_pastperf= lprcaft*pastperf;
+run;
+
+proc reg data=d;
+ model car01 = lprcaft lat beta pastperf divup lprcaft_pastperf/hcc;
+ run;
+/* part 3*/
+
+data splits;
+set Worklib.d_splitx;
+split=1;
+keep split permno dclrdt;
+run;
+
+data nosplits;
+set Worklib.d_splitx;
+split=0;
+permno=matched_permno;
+dclrdt=matched_dclrdt;
+keep split permno dclrdt;
+run;
+
+data matched_companies;
+set splits nosplits;
+run;
+
+proc sql;
+create table matched_companies as
+select
+a.*,
+b.gvkey
+from matched_companies as a, Worklib.mapping_permno_gvkey as b
+where a.permno=b.permno;
+
+%let wrds=wrds-cloud.wharton.upenn.edu 4016;  
+options comamid=TCP remote=WRDS;  
+signon username=_prompt_;  
+ 
+rsubmit; 
+libname crspd '/wrds/crsp/sasdata/a_stock'; 
+proc upload data=matched_companies;
+
+proc sql;
+create table matched_companies as 
+select
+a.*,
+log(b.prc) as lprc
+from
+matched_companies as a, crspd.msf as b
+where
+ a.permno=b.permno and
+ month(a.dclrdt)=month(b.date) and
+year(a.dclrdt)-1=year(b.date);
+proc download data= matched_companies;
+run;
+endrsubmit;
+
+
+%let wrds=wrds-cloud.wharton.upenn.edu 4016;  
+options comamid=TCP remote=WRDS;  
+signon username=_prompt_;  
+ 
+rsubmit; 
+libname comp '/wrds/comp/sasdata/nam'; 
+proc upload data=matched_companies;
+
+proc sql;
+create table matched_companies as 
+select
+a.*,
+log(b.at) as lat
+from
+matched_companies as a, comp.funda as b
+where
+ a.gvkey=b.gvkey and
+year(a.dclrdt)-2=year(b.datadate);
+
+proc download data= matched_companies;
+run;
+endrsubmit;
+
+%let wrds=wrds-cloud.wharton.upenn.edu 4016;  
+options comamid=TCP remote=WRDS;  
+signon username=_prompt_;  
+ 
+rsubmit; 
+libname crspd '/wrds/crsp/sasdata/a_stock';
+proc upload data=matched_companies;
+
+proc sql;
+create table matched_ret as 
+select
+a.*,
+b.ret 
+from
+matched_companies as a, crspd.dsf as b
+where
+ a.permno=b.permno and
+ a.dclrdt-180-365<=b.date<=a.dclrdt-365;
+
+ proc sort data=matched_ret;
+ by permno;
+ proc means data=matched_ret noprint;
+ by permno;
+output out=matchedavg
+mean(ret)=perf;
+proc sql;
+create table matched_companies as
+select
+a.*,
+b.perf
+from
+matched_companies as a, matchedavg as b
+where
+a.permno=b.permno;
+proc download data= matched_companies;
+run;
+endrsubmit;
+
+
+proc sql;
+create table matched_companies as
+select
+a.*,
+year(a.dclrdt)-b.first_year+1 as age
+from
+matched_companies as a, worklib.d_first_year as b
+where
+a.permno=b.permno;
+
+proc means;
+var split lprc lat perf age;
+where split=0;
+
+proc means;
+var split lprc lat perf age;
+where split=1;
+
+proc logistic descending;
+model split = lprc lat perf age;
+run;
